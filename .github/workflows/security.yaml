@@ -31,10 +31,10 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@v4
         with:
           go-version-file: go.mod
 
@@ -49,10 +49,10 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
  
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@v4
         with:
           go-version-file: go.mod
  
@@ -78,7 +78,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
  
       - name: Build image for scanning
         run: docker build -t go-security-test:scan .
