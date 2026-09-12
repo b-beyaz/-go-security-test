@@ -3,10 +3,10 @@ name: Security Scanning
 on:
   push:
     branches:
-      - main
+      - master
   pull_request:
     branches:
-      - main
+      - master
   schedule:
     # Weekly scan to catch newly disclosed CVEs even without code changes
     - cron: "0 6 * * 1"
