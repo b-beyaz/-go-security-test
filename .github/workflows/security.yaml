@@ -1,0 +1,96 @@
+name: Security Scanning
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  schedule:
+    # Weekly scan to catch newly disclosed CVEs even without code changes
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Set to "true" once a container registry/production publish pipeline exists
+  # for this project. While "false", Trivy findings are reported but never fail
+  # the job. This is a plain in-repo toggle (not a repository Variable) so any
+  # contributor can see/change it via a normal PR, without needing repo Settings
+  # ("Manage Actions variables") write access.
+  ENFORCE_CONTAINER_SCAN: "false"
+
+jobs:
+  govulncheck:
+    name: Go Vulnerability Check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Run govulncheck
+        continue-on-error: true
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+
+  gosec:
+    name: Run gosec
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+ 
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+ 
+      - name: Run gosec
+        # continue-on-error: same rationale as govulncheck above — this job
+        # makes findings visible without blocking merges on pre-existing
+        # issues in application code, which is out of scope for this PR.
+        continue-on-error: true
+        run: go run github.com/securego/gosec/v2/cmd/gosec@v2.29.0 -no-fail -fmt json ./... | tee gosec-report.json
+
+      - name: Upload gosec report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gosec-report
+          path: gosec-report.json
+          retention-days: 30
+  
+  trivy:
+    name: Container Scan (Trivy)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+ 
+      - name: Build image for scanning
+        run: docker build -t go-security-test:scan .
+ 
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: go-security-test:scan
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: table
+          # Controlled by the ENFORCE_CONTAINER_SCAN env var declared at the top of
+          # this file. Defaults to report-only ("0") while the project has no
+          # container registry/production pipeline yet.
+          exit-code: ${{ env.ENFORCE_CONTAINER_SCAN == 'true' && '1' || '0' }}
