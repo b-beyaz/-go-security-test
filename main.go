@@ -11,6 +11,7 @@ type healthResponse struct {
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
+	log.Println("health check requested")
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(healthResponse{Status: "ok"})
 }
