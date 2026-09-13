@@ -95,6 +95,8 @@ jobs:
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
+          set -o pipefail
+
           mkdir -p reports
 
           docker run --rm \
@@ -104,8 +106,9 @@ jobs:
             --format HTML \
             --project "thyris-sz" \
             --out /src/reports \
-            --log /src/reports/dependency-check.log \
-            --nvdApiKey "$NVD_API_KEY"
+            --nvdApiKey "$NVD_API_KEY" \
+            --verbose \
+            2>&1 | tee reports/dependency-check.log      
 
       - name: Debug Dependency-Check reports
         if: always()
