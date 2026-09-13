@@ -31,10 +31,10 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
@@ -49,10 +49,10 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
  
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
  
@@ -65,7 +65,7 @@ jobs:
 
       - name: Upload gosec report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v
         with:
           name: gosec-report
           path: gosec-report.json
@@ -78,14 +78,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
- 
       - name: Run OWASP Dependency-Check
-        # continue-on-error: same rationale as govulncheck/gosec above — this
-        # job makes findings visible without blocking merges on pre-existing
-        # issues, which is out of scope for this PR. Also, without an
-        # NVD_API_KEY secret configured, NVD database sync can be slow on
-        # first run; maintainers can add that secret later to speed this up
-        # (free key from https://nvd.nist.gov/developers/request-an-api-key).
         continue-on-error: true
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
@@ -116,7 +109,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
  
       - name: Build image for scanning
         run: docker build -t go-security-test:scan .
@@ -135,7 +128,7 @@ jobs:
           output: trivy-report.txt
       - name: Upload Trivy report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: trivy-report
           path: trivy-report.txt
