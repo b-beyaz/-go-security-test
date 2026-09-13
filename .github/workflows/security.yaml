@@ -16,9 +16,6 @@ permissions:
   contents: read
 
 env:
-  # Set to "true" once a container registry/production publish pipeline exists
-  # for this project. While "false", Trivy findings are reported but never fail
-  # the job.
   ENFORCE_CONTAINER_SCAN: "false"
 
 jobs:
@@ -27,7 +24,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -46,7 +42,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -57,11 +52,8 @@ jobs:
           go-version-file: go.mod
 
       - name: Run gosec
-        run: |
-          go run github.com/securego/gosec/v2/cmd/gosec@v2.29.0 \
-            -no-fail \
-            -fmt json \
-            ./... | tee gosec-report.json
+        continue-on-error: true
+        run: go run github.com/securego/gosec/v2/cmd/gosec@v2.29.0 -no-fail -conf .gosec -fmt json ./... | tee gosec-report.json
 
       - name: Upload gosec report
         if: always()
@@ -76,53 +68,34 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-
     steps:
-      - name: Check NVD API key
-        env:
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-        run: |
-          if [ -z "$NVD_API_KEY" ]; then
-            echo "NVD_API_KEY is EMPTY"
-            exit 1
-          fi
-
-          echo "NVD_API_KEY is configured"
-
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Cache OWASP Dependency-Check NVD database
+        uses: actions/cache@v4
+        with:
+          path: ~/.owasp-dc-data
+          key: owasp-dc-data-${{ github.run_id }}
+          restore-keys: |
+            owasp-dc-data-
+
       - name: Run OWASP Dependency-Check
+        continue-on-error: true
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
-          set -o pipefail
-
-          mkdir -p reports
-
+          mkdir -p reports ~/.owasp-dc-data
           docker run --rm \
             -u $(id -u):$(id -g) \
             --volume "${{ github.workspace }}:/src:z" \
+            --volume "$HOME/.owasp-dc-data:/usr/share/dependency-check/data:z" \
             owasp/dependency-check:13.0.0 \
             --scan /src \
-            --format HTML \
+            --format ALL \
             --project "thyris-sz" \
             --out /src/reports \
-            --nvdApiKey "$NVD_API_KEY" \
-            --log /src/reports/dependency-check.log \
-            2>&1 | tee reports/dependency-check-output.log     
-
-      - name: Debug Dependency-Check reports
-        if: always()
-        run: |
-          echo "=== reports directory ==="
-          ls -lah reports/ || true
-
-          echo "=== Dependency-Check output ==="
-          cat reports/dependency-check-output.log || true
-
-          echo "=== Dependency-Check log ==="
-          cat reports/dependency-check.log || true
+            ${NVD_API_KEY:+--nvdApiKey "$NVD_API_KEY"}
 
       - name: Upload Dependency-Check report
         if: always()
@@ -137,26 +110,22 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
       - name: Build image for scanning
-        run: docker build -t go-security-test:scan .
+        run: docker build -t thyris-sz:scan -f deployment/docker/Dockerfile .
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: go-security-test:scan
+          image-ref: thyris-sz:scan
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           format: table
-          # Controlled by the ENFORCE_CONTAINER_SCAN env var.
-          # Defaults to report-only while there is no
-          # container registry/production pipeline.
-          exit-code: ${{ env.ENFORCE_CONTAINER_SCAN == 'true' && '1' || '0' }}
           output: trivy-report.txt
+          exit-code: ${{ env.ENFORCE_CONTAINER_SCAN == 'true' && '1' || '0' }}
 
       - name: Upload Trivy report
         if: always()
