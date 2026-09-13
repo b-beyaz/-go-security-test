@@ -88,7 +88,7 @@ jobs:
             --volume "${{ github.workspace }}:/src:z" \
             owasp/dependency-check:13.0.0 \
             --scan /src \
-            --format ALL \
+            --format HTML \
             --project "thyris-sz" \
             --out /src/reports \
             ${NVD_API_KEY:+--nvdApiKey "$NVD_API_KEY"}
