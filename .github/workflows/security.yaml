@@ -140,6 +140,14 @@ jobs:
           # container registry/production pipeline yet.
           exit-code: ${{ env.ENFORCE_CONTAINER_SCAN == 'true' && '1' || '0' }}
           output: trivy-report.txt
+      - name: Debug Dependency-Check reports
+        if: always()
+        run: |
+          echo "=== reports directory ==="
+          ls -lah reports/ || true
+
+          echo "=== Dependency-Check log ==="
+          cat reports/dependency-check.log || true
       - name: Upload Trivy report
         if: always()
         uses: actions/upload-artifact@v7
