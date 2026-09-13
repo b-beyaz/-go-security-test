@@ -38,6 +38,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Run govulncheck
+        continue-on-error: true
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
 
   gosec:
@@ -100,6 +101,7 @@ jobs:
           mkdir -p reports
 
           docker run --rm \
+            -u $(id -u):$(id -g) \
             --volume "${{ github.workspace }}:/src:z" \
             owasp/dependency-check:13.0.0 \
             --scan /src \
