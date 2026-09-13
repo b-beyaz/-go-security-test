@@ -107,8 +107,8 @@ jobs:
             --project "thyris-sz" \
             --out /src/reports \
             --nvdApiKey "$NVD_API_KEY" \
-            --verbose \
-            2>&1 | tee reports/dependency-check.log      
+            --log /src/reports/dependency-check.log \
+            2>&1 | tee reports/dependency-check-output.log     
 
       - name: Debug Dependency-Check reports
         if: always()
@@ -116,7 +116,10 @@ jobs:
           echo "=== reports directory ==="
           ls -lah reports/ || true
 
-          echo "=== dependency-check.log ==="
+          echo "=== Dependency-Check output ==="
+          cat reports/dependency-check-output.log || true
+
+          echo "=== Dependency-Check log ==="
           cat reports/dependency-check.log || true
 
       - name: Upload Dependency-Check report
