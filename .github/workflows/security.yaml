@@ -95,3 +95,10 @@ jobs:
           # container registry/production pipeline yet.
           exit-code: ${{ env.ENFORCE_CONTAINER_SCAN == 'true' && '1' || '0' }}
           output: trivy-report.txt
+      - name: Upload Trivy report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report
+          path: trivy-report.txt
+          retention-days: 30
