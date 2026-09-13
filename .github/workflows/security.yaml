@@ -71,13 +71,12 @@ jobs:
           path: gosec-report.json
           retention-days: 30
 
- 
-
   owasp-dependency-check:
     name: OWASP Dependency-Check
     runs-on: ubuntu-latest
     permissions:
       contents: read
+
     steps:
       - name: Check NVD API key
         env:
@@ -88,14 +87,16 @@ jobs:
             exit 1
           fi
           echo "NVD_API_KEY is configured"
+
       - name: Checkout
         uses: actions/checkout@v7
+
       - name: Run OWASP Dependency-Check
-        #continue-on-error: true
-        env: 
+        env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
           mkdir -p reports
+
           docker run --rm \
             --volume "${{ github.workspace }}:/src:z" \
             owasp/dependency-check:13.0.0 \
@@ -103,9 +104,9 @@ jobs:
             --format HTML \
             --project "thyris-sz" \
             --out /src/reports \
-            --log /src/reports/dependency-check.log
-            ${NVD_API_KEY:+--nvdApiKey "$NVD_API_KEY"}
- 
+            --log /src/reports/dependency-check.log \
+            --nvdApiKey "$NVD_API_KEY"
+
       - name: Upload Dependency-Check report
         if: always()
         uses: actions/upload-artifact@v7
@@ -128,7 +129,7 @@ jobs:
         run: docker build -t go-security-test:scan .
  
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@v0.35.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: go-security-test:scan
           severity: HIGH,CRITICAL
