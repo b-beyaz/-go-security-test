@@ -21,7 +21,7 @@ env:
   # the job. This is a plain in-repo toggle (not a repository Variable) so any
   # contributor can see/change it via a normal PR, without needing repo Settings
   # ("Manage Actions variables") write access.
-  ENFORCE_CONTAINER_SCAN: "false"
+  ENFORCE_CONTAINER_SCAN: "true"
 
 jobs:
   govulncheck:
