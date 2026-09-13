@@ -16,6 +16,11 @@ permissions:
   contents: read
 
 env:
+  # Set to "true" once a container registry/production publish pipeline exists
+  # for this project. While "false", Trivy findings are reported but never fail
+  # the job. This is a plain in-repo toggle (not a repository Variable) so any
+  # contributor can see/change it via a normal PR, without needing repo Settings
+  # ("Manage Actions variables") write access.
   ENFORCE_CONTAINER_SCAN: "false"
 
 jobs:
@@ -34,6 +39,9 @@ jobs:
           go-version-file: go.mod
 
       - name: Run govulncheck
+        # continue-on-error: this job makes findings visible without blocking
+        # merges on pre-existing issues in application code, which is out of
+        # scope for this PR.
         continue-on-error: true
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
 
@@ -52,6 +60,9 @@ jobs:
           go-version-file: go.mod
 
       - name: Run gosec
+        # continue-on-error: same rationale as govulncheck above — this job
+        # makes findings visible without blocking merges on pre-existing
+        # issues in application code, which is out of scope for this PR.
         continue-on-error: true
         run: go run github.com/securego/gosec/v2/cmd/gosec@v2.29.0 -no-fail -conf .gosec -fmt json ./... | tee gosec-report.json
 
@@ -81,6 +92,12 @@ jobs:
             owasp-dc-data-
 
       - name: Run OWASP Dependency-Check
+        # continue-on-error: same rationale as govulncheck/gosec above — this
+        # job makes findings visible without blocking merges on pre-existing
+        # issues, which is out of scope for this PR. Also, without an
+        # NVD_API_KEY secret configured, NVD database sync can be slow on
+        # first run; maintainers can add that secret later to speed this up
+        # (free key from https://nvd.nist.gov/developers/request-an-api-key).
         continue-on-error: true
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
@@ -93,7 +110,7 @@ jobs:
             owasp/dependency-check:13.0.0 \
             --scan /src \
             --format ALL \
-            --project "thyris-sz" \
+            --project "go-security-test" \
             --out /src/reports \
             ${NVD_API_KEY:+--nvdApiKey "$NVD_API_KEY"}
 
@@ -115,16 +132,19 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Build image for scanning
-        run: docker build -t thyris-sz:scan -f deployment/docker/Dockerfile .
+        run: docker build -t go-security-test:scan .
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: thyris-sz:scan
+          image-ref: go-security-test:scan
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           format: table
           output: trivy-report.txt
+          # Controlled by the ENFORCE_CONTAINER_SCAN env var declared at the top of
+          # this file. Defaults to report-only ("0") while the project has no
+          # container registry/production pipeline yet.
           exit-code: ${{ env.ENFORCE_CONTAINER_SCAN == 'true' && '1' || '0' }}
 
       - name: Upload Trivy report
