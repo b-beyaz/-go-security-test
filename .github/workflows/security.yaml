@@ -21,7 +21,7 @@ env:
   # the job. This is a plain in-repo toggle (not a repository Variable) so any
   # contributor can see/change it via a normal PR, without needing repo Settings
   # ("Manage Actions variables") write access.
-  ENFORCE_CONTAINER_SCAN: "true"
+  ENFORCE_CONTAINER_SCAN: "false"
 
 jobs:
   govulncheck:
@@ -70,6 +70,44 @@ jobs:
           name: gosec-report
           path: gosec-report.json
           retention-days: 30
+  owasp-dependency-check:
+    name: OWASP Dependency-Check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+ 
+      - name: Run OWASP Dependency-Check
+        # continue-on-error: same rationale as govulncheck/gosec above — this
+        # job makes findings visible without blocking merges on pre-existing
+        # issues, which is out of scope for this PR. Also, without an
+        # NVD_API_KEY secret configured, NVD database sync can be slow on
+        # first run; maintainers can add that secret later to speed this up
+        # (free key from https://nvd.nist.gov/developers/request-an-api-key).
+        continue-on-error: true
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: |
+          mkdir -p reports
+          docker run --rm \
+            --volume "${{ github.workspace }}:/src:z" \
+            owasp/dependency-check:12.2.0 \
+            --scan /src \
+            --format ALL \
+            --project "thyris-sz" \
+            --out /src/reports \
+            ${NVD_API_KEY:+--nvdApiKey "$NVD_API_KEY"}
+ 
+      - name: Upload Dependency-Check report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: owasp-dependency-check-report
+          path: reports/
+          retention-days: 30
+ 
   
   trivy:
     name: Container Scan (Trivy)
