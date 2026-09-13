@@ -39,7 +39,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Run govulncheck
-        continue-on-error: true
+        #continue-on-error: true
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
 
   gosec:
@@ -60,7 +60,7 @@ jobs:
         # continue-on-error: same rationale as govulncheck above — this job
         # makes findings visible without blocking merges on pre-existing
         # issues in application code, which is out of scope for this PR.
-        continue-on-error: true
+        #continue-on-error: true
         run: go run github.com/securego/gosec/v2/cmd/gosec@v2.29.0 -no-fail -fmt json ./... | tee gosec-report.json
 
       - name: Upload gosec report
@@ -79,7 +79,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
       - name: Run OWASP Dependency-Check
-        continue-on-error: true
+        #continue-on-error: true
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
@@ -91,6 +91,7 @@ jobs:
             --format HTML \
             --project "thyris-sz" \
             --out /src/reports \
+            --log /src/reports/dependency-check.log
             ${NVD_API_KEY:+--nvdApiKey "$NVD_API_KEY"}
  
       - name: Upload Dependency-Check report
