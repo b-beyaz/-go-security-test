@@ -8,12 +8,9 @@ on:
     branches:
       - master
   schedule:
-    # Weekly scan to catch newly disclosed CVEs even without code changes
     - cron: "0 6 * * 1"
   workflow_dispatch:
 
-# Aynı branch/PR'a art arda push yapıldığında eski run'ları iptal eder,
-# runner kaynağı israfını önler.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -22,11 +19,6 @@ permissions:
   contents: read
 
 env:
-  # Set to "true" once a container registry/production publish pipeline exists
-  # for this project. While "false", Trivy findings are reported but never fail
-  # the job. This is a plain in-repo toggle (not a repository Variable) so any
-  # contributor can see/change it via a normal PR, without needing repo Settings
-  # ("Manage Actions variables") write access.
   ENFORCE_CONTAINER_SCAN: "false"
   DC_VERSION: "12.1.0"
 
@@ -37,8 +29,6 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
-      # SARIF upload'ı için gerekli; fork PR'larında GITHUB_TOKEN otomatik
-      # olarak read-only'e düşürüldüğünden bu adım o durumda sessizce atlanır.
       security-events: write
     steps:
       - name: Checkout
@@ -52,12 +42,6 @@ jobs:
           go-version-file: go.mod
 
       - name: Run govulncheck
-        # continue-on-error: this job makes findings visible without blocking
-        # merges on pre-existing issues in application code, which is out of
-        # scope for this PR.
-        # İnsan gözüyle hızlı okunabilmesi için düz metin çıktısı doğrudan
-        # job log'una yazılır; kalıcı/izlenebilir kayıt için ayrı bir adımda
-        # SARIF üretilip artifact + Security tab'a yüklenir (aşağıda).
         continue-on-error: true
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
 
@@ -89,8 +73,6 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
-      # SARIF upload'ı için gerekli; fork PR'larında GITHUB_TOKEN otomatik
-      # olarak read-only'e düşürüldüğünden bu adım o durumda sessizce atlanır.
       security-events: write
     steps:
       - name: Checkout
@@ -104,9 +86,6 @@ jobs:
           go-version-file: go.mod
 
       - name: Run gosec
-        # continue-on-error: same rationale as govulncheck above — this job
-        # makes findings visible without blocking merges on pre-existing
-        # issues in application code, which is out of scope for this PR.
         continue-on-error: true
         run: |
           go run github.com/securego/gosec/v2/cmd/gosec@v2.29.0 \
@@ -116,8 +95,6 @@ jobs:
             ./...
 
       - name: Upload gosec SARIF to Security tab
-        # Fork PR'larda token yetkisi yetmeyebilir; bu adımın başarısız
-        # olması job'u kırmasın.
         continue-on-error: true
         if: always()
         uses: github/codeql-action/upload-sarif@v4
@@ -149,9 +126,6 @@ jobs:
           persist-credentials: false
 
       - name: Set up Go
-        # The Golang Mod Analyzer is experimental and shells out to the `go`
-        # command to resolve dependencies from go.mod — without Go on PATH,
-        # dependency-check silently analyzes nothing for this project.
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
@@ -160,12 +134,6 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.owasp-dc-data
-          # Zaman bazlı (haftalık) key: eskiden github.run_id kullanıldığı için
-          # her run'da yeni bir cache girişi açılıyor ve hiçbir zaman "hit"
-          # olmuyordu (restore-keys ile önceki cache geri yükleniyordu ama
-          # sonunda yine ayrı bir kayıt oluşturuluyordu, repo cache kotasını
-          # gereksiz dolduruyordu). Haftalık key ile aynı hafta içindeki
-          # run'lar gerçek bir cache hit alır.
           key: owasp-dc-data-${{ github.run_id }}
           restore-keys: |
             owasp-dc-data-
@@ -176,19 +144,9 @@ jobs:
           ASSET_NAME="dependency-check-${DC_VERSION}-release.zip"
           DOWNLOAD_URL="https://github.com/jeremylong/DependencyCheck/releases/download/v${DC_VERSION}/${ASSET_NAME}"
 
-          # CLI aracı, repo kökünün DIŞINA (RUNNER_TEMP) indirilip açılıyor.
-          # Önceki hali burada, "." ile aynı dizine unzip ediyordu; bu da
-          # --scan . adımının aracın kendi bundled jar'larını (ör. dağıtımın
-          # içindeki dependency-check-ant modülüne ait gerçek ant-1.10.15.jar)
-          # "senin bağımlılığın" gibi tarayıp CVE-2022/2023 Ant bulgularını
-          # üretmesine sebep oluyordu — CVE'ler gerçekti ama proje ile
-          # ilgisi yoktu, sadece aracı tarıyordu.
           mkdir -p "${RUNNER_TEMP}/dependency-check-cli"
           curl -sSfL -o "${RUNNER_TEMP}/dc.zip" "$DOWNLOAD_URL"
 
-          # İndirilen zip'in bütünlüğünü GitHub'ın release asset API'sinin
-          # döndürdüğü sha256 digest'i ile doğrula. Digest yoksa (ör. eski
-          # release'ler) build'i kırmadan uyarı basıp devam eder.
           ASSET_ID=$(curl -sSf \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/jeremylong/DependencyCheck/releases/tags/v${DC_VERSION}" \
@@ -217,16 +175,6 @@ jobs:
           unzip -q "${RUNNER_TEMP}/dc.zip" -d "${RUNNER_TEMP}/dependency-check-cli"
 
       - name: Run OWASP Dependency-Check
-        # continue-on-error: true burada bilinçli. Go ekosisteminde Golang Mod
-        # Analyzer'ın CPE eşleştirmesi zayıf (isim benzerliğinden kaynaklanan
-        # false positive'ler yaygın, ör. "go-cmp" -> cpe:2.3:a:go:go), bu
-        # yüzden şu an sadece görünürlük/raporlama amaçlı, merge'i bloklamıyor.
-        #
-        # TODO(prod-hazırlık): Proje production'a yaklaşırken:
-        #   1. Bilinen false positive'leri owasp-suppressions.xml ile sustur
-        #      (--suppression flag'i ile bu komuta ekle)
-        #   2. continue-on-error: true'yu kaldır veya CVSS eşiğine göre
-        #      (ör. --failOnCVSS 7) gerçek bir merge-gate haline getir
         continue-on-error: true
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
@@ -282,9 +230,6 @@ jobs:
           ignore-unfixed: true
           format: table
           output: trivy-report.txt
-          # Controlled by the ENFORCE_CONTAINER_SCAN env var declared at the top of
-          # this file. Defaults to report-only ("0") while the project has no
-          # container registry/production pipeline yet.
           exit-code: ${{ env.ENFORCE_CONTAINER_SCAN == 'true' && '1' || '0' }}
 
       - name: Upload Trivy report
