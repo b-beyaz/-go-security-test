@@ -37,6 +37,9 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+      # SARIF upload'ı için gerekli; fork PR'larında GITHUB_TOKEN otomatik
+      # olarak read-only'e düşürüldüğünden bu adım o durumda sessizce atlanır.
+      security-events: write
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -52,8 +55,33 @@ jobs:
         # continue-on-error: this job makes findings visible without blocking
         # merges on pre-existing issues in application code, which is out of
         # scope for this PR.
+        # İnsan gözüyle hızlı okunabilmesi için düz metin çıktısı doğrudan
+        # job log'una yazılır; kalıcı/izlenebilir kayıt için ayrı bir adımda
+        # SARIF üretilip artifact + Security tab'a yüklenir (aşağıda).
         continue-on-error: true
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+
+      - name: Generate govulncheck SARIF report
+        continue-on-error: true
+        run: |
+          go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 \
+            -format sarif ./... > govulncheck-report.sarif || true
+
+      - name: Upload govulncheck SARIF to Security tab
+        continue-on-error: true
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: govulncheck-report.sarif
+          category: govulncheck
+
+      - name: Upload govulncheck report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: govulncheck-report
+          path: govulncheck-report.sarif
+          retention-days: 30
 
   gosec:
     name: Run gosec
@@ -189,6 +217,16 @@ jobs:
           unzip -q "${RUNNER_TEMP}/dc.zip" -d "${RUNNER_TEMP}/dependency-check-cli"
 
       - name: Run OWASP Dependency-Check
+        # continue-on-error: true burada bilinçli. Go ekosisteminde Golang Mod
+        # Analyzer'ın CPE eşleştirmesi zayıf (isim benzerliğinden kaynaklanan
+        # false positive'ler yaygın, ör. "go-cmp" -> cpe:2.3:a:go:go), bu
+        # yüzden şu an sadece görünürlük/raporlama amaçlı, merge'i bloklamıyor.
+        #
+        # TODO(prod-hazırlık): Proje production'a yaklaşırken:
+        #   1. Bilinen false positive'leri owasp-suppressions.xml ile sustur
+        #      (--suppression flag'i ile bu komuta ekle)
+        #   2. continue-on-error: true'yu kaldır veya CVSS eşiğine göre
+        #      (ör. --failOnCVSS 7) gerçek bir merge-gate haline getir
         continue-on-error: true
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
