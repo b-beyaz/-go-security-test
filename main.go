@@ -8,6 +8,11 @@ import (
 import (
 	_ "github.com/prometheus/client_model/go" // TEMP: OWASP scan pipeline testi için
 )
+import "golang.org/x/text/language"
+
+func init() {
+	_, _ = language.Parse("test-vuln-check") // TEMP: govulncheck pipeline testi
+}
 
 type healthResponse struct {
 	Status string `json:"status"`
