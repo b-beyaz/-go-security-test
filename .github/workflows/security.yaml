@@ -12,6 +12,12 @@ on:
     - cron: "0 6 * * 1"
   workflow_dispatch:
 
+# Aynı branch/PR'a art arda push yapıldığında eski run'ları iptal eder,
+# runner kaynağı israfını önler.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -22,16 +28,20 @@ env:
   # contributor can see/change it via a normal PR, without needing repo Settings
   # ("Manage Actions variables") write access.
   ENFORCE_CONTAINER_SCAN: "false"
+  DC_VERSION: "12.1.0"
 
 jobs:
   govulncheck:
     name: Go Vulnerability Check
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@v7
@@ -48,11 +58,17 @@ jobs:
   gosec:
     name: Run gosec
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
+      # SARIF upload'ı için gerekli; fork PR'larında GITHUB_TOKEN otomatik
+      # olarak read-only'e düşürüldüğünden bu adım o durumda sessizce atlanır.
+      security-events: write
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@v7
@@ -64,24 +80,45 @@ jobs:
         # makes findings visible without blocking merges on pre-existing
         # issues in application code, which is out of scope for this PR.
         continue-on-error: true
-        run: go run github.com/securego/gosec/v2/cmd/gosec@v2.29.0 -no-fail -conf .gosec -fmt json ./... | tee gosec-report.json
+        run: |
+          go run github.com/securego/gosec/v2/cmd/gosec@v2.29.0 \
+            -no-fail -conf .gosec \
+            -fmt=json -out=gosec-report.json \
+            -fmt=sarif -out=gosec-report.sarif \
+            ./...
+
+      - name: Upload gosec SARIF to Security tab
+        # Fork PR'larda token yetkisi yetmeyebilir; bu adımın başarısız
+        # olması job'u kırmasın.
+        continue-on-error: true
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: gosec-report.sarif
+          category: gosec
 
       - name: Upload gosec report
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: gosec-report
-          path: gosec-report.json
+          path: |
+            gosec-report.json
+            gosec-report.sarif
           retention-days: 30
 
   owasp-dependency-check:
     name: OWASP Dependency-Check
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
+      security-events: write
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Set up Go
         # The Golang Mod Analyzer is experimental and shells out to the `go`
@@ -95,23 +132,55 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.owasp-dc-data
+          # Zaman bazlı (haftalık) key: eskiden github.run_id kullanıldığı için
+          # her run'da yeni bir cache girişi açılıyor ve hiçbir zaman "hit"
+          # olmuyordu (restore-keys ile önceki cache geri yükleniyordu ama
+          # sonunda yine ayrı bir kayıt oluşturuluyordu, repo cache kotasını
+          # gereksiz dolduruyordu). Haftalık key ile aynı hafta içindeki
+          # run'lar gerçek bir cache hit alır.
           key: owasp-dc-data-${{ github.run_id }}
           restore-keys: |
             owasp-dc-data-
 
       - name: Download OWASP Dependency-Check
         run: |
-          curl -sSfL -o dc.zip \
-            https://github.com/jeremylong/DependencyCheck/releases/download/v12.1.0/dependency-check-12.1.0-release.zip
+          set -euo pipefail
+          ASSET_NAME="dependency-check-${DC_VERSION}-release.zip"
+          DOWNLOAD_URL="https://github.com/jeremylong/DependencyCheck/releases/download/v${DC_VERSION}/${ASSET_NAME}"
+
+          curl -sSfL -o dc.zip "$DOWNLOAD_URL"
+
+          # İndirilen zip'in bütünlüğünü GitHub'ın release asset API'sinin
+          # döndürdüğü sha256 digest'i ile doğrula. Digest yoksa (ör. eski
+          # release'ler) build'i kırmadan uyarı basıp devam eder.
+          ASSET_ID=$(curl -sSf \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/jeremylong/DependencyCheck/releases/tags/v${DC_VERSION}" \
+            | jq -r --arg name "$ASSET_NAME" '.assets[] | select(.name==$name) | .id')
+
+          if [ -n "${ASSET_ID}" ] && [ "${ASSET_ID}" != "null" ]; then
+            EXPECTED_DIGEST=$(curl -sSf \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/jeremylong/DependencyCheck/releases/assets/${ASSET_ID}" \
+              | jq -r '.digest // empty')
+
+            if [ -n "${EXPECTED_DIGEST}" ]; then
+              ACTUAL_DIGEST="sha256:$(sha256sum dc.zip | cut -d' ' -f1)"
+              if [ "${EXPECTED_DIGEST}" != "${ACTUAL_DIGEST}" ]; then
+                echo "::error::Checksum mismatch for ${ASSET_NAME}: expected ${EXPECTED_DIGEST}, got ${ACTUAL_DIGEST}"
+                exit 1
+              fi
+              echo "Checksum verified: ${ACTUAL_DIGEST}"
+            else
+              echo "::warning::GitHub API returned no digest for this asset; skipping integrity check"
+            fi
+          else
+            echo "::warning::Could not resolve asset id for ${ASSET_NAME}; skipping integrity check"
+          fi
+
           unzip -q dc.zip
 
       - name: Run OWASP Dependency-Check
-        # continue-on-error: same rationale as govulncheck/gosec above — this
-        # job makes findings visible without blocking merges on pre-existing
-        # issues, which is out of scope for this PR. Also, without an
-        # NVD_API_KEY secret configured, NVD database sync can be slow on
-        # first run; maintainers can add that secret later to speed this up
-        # (free key from https://nvd.nist.gov/developers/request-an-api-key).
         continue-on-error: true
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
@@ -120,12 +189,21 @@ jobs:
           ./dependency-check/bin/dependency-check.sh \
             --enableExperimental \
             --disableOssIndex \
+            --exclude "**/.git/**" \
             --scan . \
             --format ALL \
             --project "go-security-test" \
             --out reports \
             --data ~/.owasp-dc-data \
             ${NVD_API_KEY:+--nvdApiKey "$NVD_API_KEY"}
+
+      - name: Upload Dependency-Check SARIF to Security tab
+        continue-on-error: true
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: reports/dependency-check-report.sarif
+          category: owasp-dependency-check
 
       - name: Upload Dependency-Check report
         if: always()
@@ -138,11 +216,14 @@ jobs:
   trivy:
     name: Container Scan (Trivy)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Build image for scanning
         run: docker build -t go-security-test:scan .
