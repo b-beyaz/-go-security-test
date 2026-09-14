@@ -5,6 +5,9 @@ import (
 	"log"
 	"net/http"
 )
+import (
+	_ "github.com/prometheus/client_model/go" // TEMP: OWASP scan pipeline testi için
+)
 
 type healthResponse struct {
 	Status string `json:"status"`
