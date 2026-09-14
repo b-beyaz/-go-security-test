@@ -107,9 +107,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: gosec-report
-          path: |
-            gosec-report.json
-            gosec-report.sarif
+          path: gosec-report.sarif
           retention-days: 30
 
   owasp-dependency-check:
