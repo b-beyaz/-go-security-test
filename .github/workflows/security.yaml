@@ -83,6 +83,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Set up Go
+        # The Golang Mod Analyzer is experimental and shells out to the `go`
+        # command to resolve dependencies from go.mod — without Go on PATH,
+        # dependency-check silently analyzes nothing for this project.
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
       - name: Cache OWASP Dependency-Check NVD database
         uses: actions/cache@v4
         with:
@@ -90,6 +98,12 @@ jobs:
           key: owasp-dc-data-${{ github.run_id }}
           restore-keys: |
             owasp-dc-data-
+
+      - name: Download OWASP Dependency-Check
+        run: |
+          curl -sSfL -o dc.zip \
+            https://github.com/jeremylong/DependencyCheck/releases/download/v12.1.0/dependency-check-12.1.0-release.zip
+          unzip -q dc.zip
 
       - name: Run OWASP Dependency-Check
         # continue-on-error: same rationale as govulncheck/gosec above — this
@@ -103,15 +117,13 @@ jobs:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
           mkdir -p reports ~/.owasp-dc-data
-          docker run --rm \
-            -u $(id -u):$(id -g) \
-            --volume "${{ github.workspace }}:/src:z" \
-            --volume "$HOME/.owasp-dc-data:/usr/share/dependency-check/data:z" \
-            owasp/dependency-check:13.0.0 \
-            --scan /src \
+          ./dependency-check/bin/dependency-check.sh \
+            --enableExperimental \
+            --scan . \
             --format ALL \
             --project "go-security-test" \
-            --out /src/reports \
+            --out reports \
+            --data ~/.owasp-dc-data \
             ${NVD_API_KEY:+--nvdApiKey "$NVD_API_KEY"}
 
       - name: Upload Dependency-Check report
