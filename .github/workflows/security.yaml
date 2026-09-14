@@ -148,7 +148,15 @@ jobs:
           ASSET_NAME="dependency-check-${DC_VERSION}-release.zip"
           DOWNLOAD_URL="https://github.com/jeremylong/DependencyCheck/releases/download/v${DC_VERSION}/${ASSET_NAME}"
 
-          curl -sSfL -o dc.zip "$DOWNLOAD_URL"
+          # CLI aracı, repo kökünün DIŞINA (RUNNER_TEMP) indirilip açılıyor.
+          # Önceki hali burada, "." ile aynı dizine unzip ediyordu; bu da
+          # --scan . adımının aracın kendi bundled jar'larını (ör. dağıtımın
+          # içindeki dependency-check-ant modülüne ait gerçek ant-1.10.15.jar)
+          # "senin bağımlılığın" gibi tarayıp CVE-2022/2023 Ant bulgularını
+          # üretmesine sebep oluyordu — CVE'ler gerçekti ama proje ile
+          # ilgisi yoktu, sadece aracı tarıyordu.
+          mkdir -p "${RUNNER_TEMP}/dependency-check-cli"
+          curl -sSfL -o "${RUNNER_TEMP}/dc.zip" "$DOWNLOAD_URL"
 
           # İndirilen zip'in bütünlüğünü GitHub'ın release asset API'sinin
           # döndürdüğü sha256 digest'i ile doğrula. Digest yoksa (ör. eski
@@ -165,7 +173,7 @@ jobs:
               | jq -r '.digest // empty')
 
             if [ -n "${EXPECTED_DIGEST}" ]; then
-              ACTUAL_DIGEST="sha256:$(sha256sum dc.zip | cut -d' ' -f1)"
+              ACTUAL_DIGEST="sha256:$(sha256sum "${RUNNER_TEMP}/dc.zip" | cut -d' ' -f1)"
               if [ "${EXPECTED_DIGEST}" != "${ACTUAL_DIGEST}" ]; then
                 echo "::error::Checksum mismatch for ${ASSET_NAME}: expected ${EXPECTED_DIGEST}, got ${ACTUAL_DIGEST}"
                 exit 1
@@ -178,7 +186,7 @@ jobs:
             echo "::warning::Could not resolve asset id for ${ASSET_NAME}; skipping integrity check"
           fi
 
-          unzip -q dc.zip
+          unzip -q "${RUNNER_TEMP}/dc.zip" -d "${RUNNER_TEMP}/dependency-check-cli"
 
       - name: Run OWASP Dependency-Check
         continue-on-error: true
@@ -186,7 +194,7 @@ jobs:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
           mkdir -p reports ~/.owasp-dc-data
-          ./dependency-check/bin/dependency-check.sh \
+          "${RUNNER_TEMP}/dependency-check-cli/dependency-check/bin/dependency-check.sh" \
             --enableExperimental \
             --disableOssIndex \
             --exclude "**/.git/**" \
