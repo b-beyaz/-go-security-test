@@ -119,6 +119,7 @@ jobs:
           mkdir -p reports ~/.owasp-dc-data
           ./dependency-check/bin/dependency-check.sh \
             --enableExperimental \
+            --disableOssIndex \
             --scan . \
             --format ALL \
             --project "go-security-test" \
